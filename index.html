@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SimpleReceive Cloud v2（棟/樓/戶號 + 特例）</title>
+<style>
+  :root { --bg:#0f172a; --panel:#0b1220; --card:#111827; --muted:#94a3b8; --text:#e5e7eb; --accent:#22c55e; --danger:#ef4444; --warn:#f59e0b; }
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Noto Sans,"PingFang TC","Microsoft JhengHei",sans-serif;}
+  .wrap{max-width:1100px;margin:24px auto;padding:16px;}
+  .nav{display:flex;gap:8px;margin-bottom:12px;}
+  .tab{padding:10px 14px;border-radius:999px;border:1px solid #334155;background:#0b1220;color:#cbd5e1;cursor:pointer;font-weight:600}
+  .tab.active{background:var(--accent);color:#06270f;border-color:#16a34a}
+  .card{background:var(--card);border-radius:16px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.25);}
+  h1{font-size:24px;margin:0 0 8px}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:12px}
+  .grid{display:grid;grid-template-columns:repeat(3, 1fr);gap:12px}
+  .grid-2{display:grid;grid-template-columns:repeat(2, 1fr);gap:12px}
+  .grid-1{display:grid;grid-template-columns:1fr;gap:12px}
+  label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+  input,select{width:100%;padding:12px 14px;font-size:16px;border-radius:12px;border:1px solid #334155;background:var(--panel);color:#e5e7eb;outline:none}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .btn{padding:10px 14px;border:none;border-radius:12px;color:white;background:#334155;cursor:pointer;font-size:15px}
+  .btn.primary{background:var(--accent);color:#06270f;font-weight:800}
+  .btn.danger{background:var(--danger)}
+  .btn.warn{background:var(--warn);color:#1f2937}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px;border-bottom:1px solid #243244;text-align:left;font-size:14px}
+  th{color:var(--muted);font-weight:600}
+  .toolbar{display:flex;gap:8px;justify-content:space-between;align-items:center;margin:8px 0 12px}
+  .search{flex:1}
+  .pill{font-size:12px;padding:4px 8px;border:1px solid #334155;border-radius:999px;color:#94a3b8}
+  .footer{color:var(--muted);font-size:12px;margin-top:12px;text-align:center}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;padding:16px}
+  .modal.show{display:flex}
+  .modal .box{background:var(--card);border-radius:16px;padding:16px;max-width:960px;width:100%}
+  canvas{border-radius:12px;background:#0b1220;border:1px dashed #334155;touch-action:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>SimpleReceive Cloud v2</h1>
+  <div class="sub">三段式地址（棟/樓/戶號）＋ 特例：<b>47 一樓包含 47-1、47-2</b>。含待簽收/已簽收分流與簽名。</div>
+
+  <div class="nav">
+    <button class="tab active" data-tab="create">📦 新增包裹</button>
+    <button class="tab" data-tab="pending">📥 待簽收</button>
+    <button class="tab" data-tab="signed">📤 已簽收</button>
+  </div>
+
+  <!-- Create -->
+  <section id="tab-create" class="card">
+    <h2 style="margin:0 0 8px;font-size:20px">新增包裹到「待簽收」</h2>
+    <div class="grid">
+      <div>
+        <label>棟</label>
+        <select id="bld"></select>
+      </div>
+      <div>
+        <label>樓</label>
+        <select id="floor"></select>
+      </div>
+      <div>
+        <label>戶號</label>
+        <select id="unit"></select>
+      </div>
+    </div>
+    <div class="grid-2" style="margin-top:12px">
+      <div>
+        <label>收件人</label>
+        <input id="recipient" type="text" placeholder="住戶姓名" />
+      </div>
+      <div>
+        <label>件別</label>
+        <select id="category"><option value="包裹">包裹</option><option value="掛號">掛號</option></select>
+      </div>
+      <div>
+        <label>貨運公司</label>
+        <input id="courier" type="text" placeholder="黑貓、郵局、全家、7-11..." />
+      </div>
+      <div>
+        <label>件數</label>
+        <input id="qty" type="number" min="1" value="1" />
+      </div>
+      <div class="grid-1">
+        <label>擺放位置（備註）</label>
+        <input id="location" type="text" placeholder="櫃台後方第2層、櫃號A-3..." />
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary" id="addPending">加入待簽收</button>
+      <span class="pill" id="pendingCount">0 待簽收</span>
+    </div>
+  </section>
+
+  <div style="height:12px"></div>
+
+  <!-- Pending -->
+  <section id="tab-pending" class="card" style="display:none">
+    <div class="toolbar">
+      <div class="row search">
+        <input id="qPending" type="search" placeholder="搜尋：住址 / 收件人 / 貨運 / 件別" />
+      </div>
+      <div class="row">
+        <button class="btn" id="exportPending">匯出CSV（交班：待簽收）</button>
+        <span class="pill" id="pendingCount2">0 筆</span>
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr><th>#</th><th>時間</th><th>住址</th><th>件別</th><th>收件人</th><th>貨運</th><th>件數</th><th>位置</th><th>動作</th></tr>
+      </thead>
+      <tbody id="tbPending"></tbody>
+    </table>
+  </section>
+
+  <div style="height:12px"></div>
+
+  <!-- Signed -->
+  <section id="tab-signed" class="card" style="display:none">
+    <div class="toolbar">
+      <div class="row search">
+        <input id="qSigned" type="search" placeholder="搜尋：住址 / 收件人 / 貨運 / 簽收人 / 件別" />
+      </div>
+      <div class="row">
+        <button class="btn" id="exportSigned">匯出CSV（已簽收）</button>
+        <span class="pill" id="signedCount">0 筆</span>
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr><th>#</th><th>收貨時間</th><th>住址</th><th>件別</th><th>收件人</th><th>貨運</th><th>件數</th><th>位置</th><th>簽收人</th><th>簽收時間</th><th>簽名</th><th>動作</th></tr>
+      </thead>
+      <tbody id="tbSigned"></tbody>
+    </table>
+  </section>
+</div>
+
+<!-- 簽名視窗 -->
+<div class="modal" id="signModal">
+  <div class="box">
+    <h3 style="margin:0 0 8px">簽收</h3>
+    <div class="grid-2">
+      <div>
+        <label>簽收人（住戶姓名）</label>
+        <input id="signer" type="text" placeholder="簽收者" />
+      </div>
+      <div>
+        <label>簽收時間（自動）</label>
+        <input id="signTime" type="text" readonly />
+      </div>
+      <div>
+        <label>件數確認</label>
+        <input id="signQty" type="number" min="1" />
+      </div>
+    </div>
+    <div style="height:8px"></div>
+    <label>簽名</label>
+    <canvas id="sig" width="900" height="300"></canvas>
+    <div class="row" style="margin-top:8px">
+      <button class="btn" id="clearSig">清除簽名</button>
+      <button class="btn warn" id="cancelSign">取消</button>
+      <button class="btn primary" id="confirmSign">確認簽收</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const $ = (id)=>document.getElementById(id);
+  const esc = (s)=> (s||"").replace(/[&<>\"']/g, c=> ({"&":"&amp;","<":"&lt;",
+    ">":"&gt;","\\\"":"&quot;","'":"&#39;"}[c]));
+  const pad = (n)=> String(n).padStart(2,'0');
+  const nowISO = ()=>{ const d=new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` };
+  const load = (k,f)=>{ try{ return JSON.parse(localStorage.getItem(k)||JSON.stringify(f)); }catch(_){ return f; } };
+  const save = (k,v)=> localStorage.setItem(k, JSON.stringify(v));
+
+  // Keys
+  const PENDING_KEY='src_v2_pending';
+  const SIGNED_KEY='src_v2_signed';
+
+  // Address cascading
+  const bldSel=$('bld'), floorSel=$('floor'), unitSel=$('unit');
+  const BUILDINGS=["47","47-1","47-3","47-5","47-6","47-7"]; // 6 棟
+
+  function range(a,b){ const arr=[]; for(let i=a;i<=b;i++) arr.push(i); return arr; }
+
+  function floorsOf(b){
+    if(b==="47" || b==="47-1") return range(1,14);
+    return range(2,14);
+  }
+
+  function unitsOf(b, f){
+    if(b==="47"){ // 甲：每層 之1、之2；但 1F 另外包含 47-1、47-2
+      const base=["之1","之2"]; if(f===1){ base.push("47-1","47-2"); } return base;
+    }
+    if(b==="47-1"){ // 己：1–8 號（跳過 4）
+      return [1,2,3,5,6,7,8].map(n=> String(n));
+    }
+    if(b==="47-6"){ // 丙：之1–之7
+      return [1,2,3,4,5,6,7].map(n=> `之${n}`);
+    }
+    // 47-3 / 47-5 / 47-7 → 之1、之2
+    return ["之1","之2"];
+  }
+
+  function renderBuildings(){ bldSel.innerHTML=''; BUILDINGS.forEach(b=>{ const o=document.createElement('option'); o.value=b; o.textContent=b; bldSel.appendChild(o); }); }
+  function renderFloors(){ floorSel.innerHTML=''; floorsOf(bldSel.value).forEach(f=>{ const o=document.createElement('option'); o.value=String(f); o.textContent=`${f}樓`; floorSel.appendChild(o); }); }
+  function renderUnits(){ unitSel.innerHTML=''; const b=bldSel.value; const f=parseInt(floorSel.value||'1',10); unitsOf(b,f).forEach(u=>{ const o=document.createElement('option'); o.value=u; o.textContent=(b==="47-1" && !u.includes('之') && !u.includes('-'))? `${u}號` : u; unitSel.appendChild(o); }); }
+  function fullAddress(b,f,u){
+    if(b==="47-1"){ // 47-1 樓層 + 號
+      return `${b} ${f}樓${u}號`;
+    }
+    if(b==="47" && f===1 && (u==="47-1" || u==="47-2")){
+      // 特例：獨立兩戶直接顯示 47-1 / 47-2
+      return u;
+    }
+    // 其他：使用 之X 標示
+    return `${b} ${f}樓${u}`;
+  }
+
+  bldSel.addEventListener('change', ()=>{ renderFloors(); renderUnits(); });
+  floorSel.addEventListener('change', renderUnits);
+
+  // Initialize cascading selects
+  renderBuildings(); renderFloors(); renderUnits();
+
+  // Create → Pending
+  const recipientEl=$('recipient'), courierEl=$('courier'), qtyEl=$('qty'), locEl=$('location'), catEl=$('category');
+  $('addPending').onclick=()=>{
+    const b=bldSel.value; const f=parseInt(floorSel.value,10); const u=unitSel.value;
+    const address = fullAddress(b,f, u.replace(/號$/,''));
+    const recipient=(recipientEl.value||'').trim();
+    const courier=(courierEl.value||'').trim();
+    const qty=parseInt(qtyEl.value||'1',10);
+    const location=(locEl.value||'').trim();
+    const category = catEl.value;
+    if(!recipient) return alert('請填收件人');
+    const list = load(PENDING_KEY, []);
+    list.push({ id: (crypto && crypto.randomUUID? crypto.randomUUID() : String(Date.now()) ), created_at: nowISO(), address, category, recipient, courier, qty, location });
+    save(PENDING_KEY, list);
+    recipientEl.value=''; courierEl.value=''; qtyEl.value=1; locEl.value='';
+    renderPending(); document.querySelector('[data-tab="pending"]').click();
+  };
+
+  // Pending table
+  const qPending=$('qPending'), tbPending=$('tbPending');
+  function renderPending(){
+    const list=load(PENDING_KEY, []);
+    const q=(qPending.value||'').trim().toLowerCase();
+    const rows=list.filter(r=> !q || [r.address,r.category,r.recipient,r.courier].join(' ').toLowerCase().includes(q));
+    tbPending.innerHTML='';
+    rows.forEach((r,i)=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${i+1}</td><td>${r.created_at}</td><td>${esc(r.address)}</td><td>${esc(r.category)}</td><td>${esc(r.recipient)}</td><td>${esc(r.courier)}</td><td>${r.qty}</td><td>${esc(r.location)}</td><td>
+        <button class='btn primary' data-act='sign' data-id='${r.id}'>簽收</button>
+        <button class='btn danger' data-act='del' data-id='${r.id}'>刪除</button>
+      </td>`;
+      tbPending.appendChild(tr);
+    });
+    $('pendingCount').textContent = `${list.length} 待簽收`;
+    $('pendingCount2').textContent = `${rows.length} 筆`;
+  }
+  qPending.addEventListener('input', renderPending);
+  tbPending.addEventListener('click', (e)=>{
+    const btn=e.target.closest('button'); if(!btn) return;
+    const id=btn.getAttribute('data-id');
+    if(btn.getAttribute('data-act')==='del'){
+      const list=load(PENDING_KEY, []); const idx=list.findIndex(x=>x.id===id);
+      if(idx>-1){ if(confirm('刪除此待簽收？')){ list.splice(idx,1); save(PENDING_KEY, list); renderPending(); } }
+    }else if(btn.getAttribute('data-act')==='sign'){
+      openSignModal(id);
+    }
+  });
+  $('exportPending').onclick=()=> exportCSV(load(PENDING_KEY, []), 'handover_pending.csv');
+
+  // Signed table
+  const qSigned=$('qSigned'), tbSigned=$('tbSigned');
+  function renderSigned(){
+    const list=load(SIGNED_KEY, []);
+    const q=(qSigned.value||'').trim().toLowerCase();
+    const rows=list.filter(r=> !q || [r.address,r.category,r.recipient,r.courier,r.signer].join(' ').toLowerCase().includes(q));
+    tbSigned.innerHTML='';
+    rows.forEach((r,i)=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${i+1}</td><td>${r.created_at}</td><td>${esc(r.address)}</td><td>${esc(r.category)}</td><td>${esc(r.recipient)}</td><td>${esc(r.courier)}</td><td>${r.qty}</td><td>${esc(r.location)}</td><td>${r.signer}</td><td>${r.signed_at}</td><td>`+ (r.signature?`<a href='${r.signature}' download='signature_${r.id}.png' class='btn'>下載PNG</a>`:'—') +`</td><td><button class='btn danger' data-act='del' data-id='${r.id}'>刪除</button></td>`;
+      tbSigned.appendChild(tr);
+    });
+    $('signedCount').textContent = `${rows.length} 筆`;
+  }
+  qSigned.addEventListener('input', renderSigned);
+  tbSigned.addEventListener('click', (e)=>{
+    const btn=e.target.closest('button'); if(!btn) return;
+    const id=btn.getAttribute('data-id');
+    if(btn.getAttribute('data-act')==='del'){
+      const list=load(SIGNED_KEY, []); const idx=list.findIndex(x=>x.id===id);
+      if(idx>-1){ if(confirm('刪除此筆已簽收？')){ list.splice(idx,1); save(SIGNED_KEY, list); renderSigned(); } }
+    }
+  });
+  $('exportSigned').onclick=()=> exportCSV(load(SIGNED_KEY, []), 'signed.csv');
+
+  function exportCSV(arr, filename){
+    const header = Object.keys(arr[0]||{id:'',created_at:'',address:'',category:'',recipient:'',courier:'',qty:'',location:'',signer:'',signed_at:'',signature:''});
+    const rows=[header.join(',')];
+    const escq = (s)=>`"${String(s??'').replace(/"/g,'""')}"`;
+    arr.forEach(o=> rows.push(header.map(k=> escq(o[k])).join(',')));
+    const blob=new Blob([rows.join('\n')],{type:'text/csv;charset=utf-8;'});
+    const a=document.createElement('a'); const url=URL.createObjectURL(blob); a.href=url; a.download=filename; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+
+  // Tabs
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach(t=> t.addEventListener('click', ()=>{
+    tabs.forEach(x=> x.classList.remove('active')); t.classList.add('active');
+    ['create','pending','signed'].forEach(name=> document.getElementById('tab-'+name).style.display='none');
+    document.getElementById('tab-'+ t.dataset.tab).style.display='block';
+    if(t.dataset.tab==='pending') renderPending();
+    if(t.dataset.tab==='signed') renderSigned();
+  }));
+
+  // Sign modal
+  const modal=$('signModal'), signerEl=$('signer'), signTimeEl=$('signTime'), signQtyEl=$('signQty');
+  const sig=$('sig'); const ctx=sig.getContext('2d');
+  function resetCanvas(){ ctx.fillStyle="#0b1220"; ctx.fillRect(0,0,sig.width,sig.height); ctx.strokeStyle="#e5e7eb"; ctx.lineWidth=3; ctx.lineCap='round'; }
+  resetCanvas();
+  let drawing=false, last=null, currentId=null;
+  const getPos=(e)=>{ const r=sig.getBoundingClientRect(); const x=(e.touches?e.touches[0].clientX:e.clientX)-r.left; const y=(e.touches?e.touches[0].clientY:e.clientY)-r.top; return {x:Math.max(0,Math.min(sig.width,x*(sig.width/r.width))), y:Math.max(0,Math.min(sig.height,y*(sig.height/r.height)))} };
+  const start=(e)=>{drawing=true; last=getPos(e); e.preventDefault();};
+  const move=(e)=>{ if(!drawing) return; const p=getPos(e); ctx.beginPath(); ctx.moveTo(last.x,last.y); ctx.lineTo(p.x,p.y); ctx.stroke(); last=p; e.preventDefault(); };
+  const end=()=>{drawing=false; last=null};
+  sig.addEventListener('mousedown',start); sig.addEventListener('mousemove',move); window.addEventListener('mouseup',end);
+  sig.addEventListener('touchstart',start,{passive:false}); sig.addEventListener('touchmove',move,{passive:false}); sig.addEventListener('touchend',end);
+  $('clearSig').onclick=resetCanvas;
+  $('cancelSign').onclick=()=>{ modal.classList.remove('show'); };
+
+  function openSignModal(id){
+    currentId = id; signerEl.value=''; signTimeEl.value = nowISO(); resetCanvas();
+    const list = load(PENDING_KEY, []); const r = list.find(x=>x.id===id); signQtyEl.value = r? r.qty : 1;
+    modal.classList.add('show');
+  }
+
+  $('confirmSign').onclick=()=>{
+    const signer=(signerEl.value||'').trim(); if(!signer) return alert('請填簽收人');
+    const blank=document.createElement('canvas'); blank.width=sig.width; blank.height=sig.height; const bctx=blank.getContext('2d'); bctx.fillStyle="#0b1220"; bctx.fillRect(0,0,blank.width,blank.height); const isBlank = blank.toDataURL()===sig.toDataURL();
+    const signature = isBlank ? null : sig.toDataURL('image/png');
+    const pend=load(PENDING_KEY, []); const idx=pend.findIndex(x=>x.id===currentId); if(idx===-1) return;
+    const item=pend[idx]; pend.splice(idx,1); save(PENDING_KEY, pend);
+    const signed=load(SIGNED_KEY, []);
+    signed.push({ ...item, signer, signed_at: nowISO(), qty: parseInt($('signQty').value||item.qty,10), signature});
+    save(SIGNED_KEY, signed);
+    modal.classList.remove('show'); renderPending(); renderSigned();
+    document.querySelector('[data-tab="signed"]').click();
+  };
+
+  // Expose
+  window.openSignModal = openSignModal;
+})();
+</script>
+</body>
+</html>
